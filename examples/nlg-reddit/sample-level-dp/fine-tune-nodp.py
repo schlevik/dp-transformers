@@ -17,8 +17,12 @@ from peft import get_peft_model, LoraConfig
 logger = logging.getLogger(__name__)
 
 
+
 @dataclass
-class ModelArguments:
+class ScriptArgs:
+    train_file: str = field(default=None, metadata={
+        "help": "Path to the train file"
+    })
     model_name: str = field(default="gpt2", metadata={
         "help": "Model name in HuggingFace, e.g. 'gpt2'"
     })
@@ -54,13 +58,12 @@ class LoraArguments:
 @dataclass
 class Arguments:
     train: dp_transformers.TrainingArguments
-    model: ModelArguments
+    script_args: ScriptArgs
     lora: LoraArguments
 
 
 def main(args: Arguments):
     transformers.set_seed(args.train.seed)
-
     # Setup logging
     logging.basicConfig(
         format="%(asctime)s - %(levelname)s - %(name)s - %(message)s",
@@ -83,20 +86,20 @@ def main(args: Arguments):
     logger.info(f"Training/evaluation parameters {train_args}")
 
     # Load model
-    model = transformers.AutoModelForCausalLM.from_pretrained(args.model.model_name)
+    model = transformers.AutoModelForCausalLM.from_pretrained(args.script_args.model_name)
     model = model.to(train_args.device)
 
     # Load data
-    dataset = datasets.load_dataset('reddit', split="train[:500000]").train_test_split(0.02, seed=args.train.seed)
+    dataset = datasets.load_dataset('json', data_files=script_args.train_file)
 
     # Load tokenizer
-    tokenizer = transformers.AutoTokenizer.from_pretrained(args.model.model_name)
+    tokenizer = transformers.AutoTokenizer.from_pretrained(args.script_args.model_name)
     tokenizer.pad_token = tokenizer.eos_token
 
     # Tokenize data
     with train_args.main_process_first(desc="tokenizing dataset"):
         dataset = dataset.map(
-            lambda batch: tokenizer(batch['content'], padding="max_length", truncation=True, max_length=args.model.sequence_len),
+            lambda batch: tokenizer(batch['text'], padding="max_length", truncation=True, max_length=args.script_args.sequence_len),
             batched=True, num_proc=8, desc="tokenizing dataset", remove_columns=dataset.column_names['train']
         )
 
@@ -119,13 +122,18 @@ def main(args: Arguments):
         args=train_args,
         model=model,
         train_dataset=dataset['train'],
-        eval_dataset=dataset['test'],
-        data_collator=data_collator
+        eval_dataset=dataset['train'][:100],
+        data_collator=data_collator,
     )
 
     trainer.train()
+    if args.lora.enable_lora:
+        print("Merging model...")
+        model = model.merge_and_unload()
+    model.save_pretrained(args.train.output_dir)
+    tokenizer.save_pretrained(args.train.output_dir)
 
 if __name__ == "__main__":
-    arg_parser = transformers.HfArgumentParser((dp_transformers.TrainingArguments, ModelArguments, LoraArguments))
-    train_args, model_args, lora_args = arg_parser.parse_args_into_dataclasses()
-    main(Arguments(train=train_args, model=model_args, lora=lora_args))
+    arg_parser = transformers.HfArgumentParser((dp_transformers.TrainingArguments, ScriptArgs, LoraArguments))
+    train_args, script_args, lora_args = arg_parser.parse_args_into_dataclasses()
+    main(Arguments(train=train_args, script_args=script_args, lora=lora_args))
