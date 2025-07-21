@@ -1,14 +1,15 @@
 dataset_name="sampled_daniel-ml"
 sequence_len=256
+user_name="srini"
 # Iterate through all dataset files in the folder
 for i in {0..99}; do
-    dataset_file="/home/srini/dp-transformers/$dataset_name/dataset_${i}.jsonl"
+    dataset_file="/home/$user_name/dp-transformers/$dataset_name/dataset_${i}.jsonl"
     echo "dataset_file: $dataset_file"
     if [ -f "$dataset_file" ]; then
         echo "Processing $dataset_file"
         for epsilon in 0.5 1 2 4; do
             echo "Processing $dataset_file with epsilon $epsilon"
-            output_dir="/data/srini/$dataset_name/${i}/${epsilon}"
+            output_dir="/data/$user_name/$dataset_name/${i}/${epsilon}"
             mkdir -p "$output_dir"
             CUDA_VISIBLE_DEVICES=0,1,2,3,4 python3 -m torch.distributed.run --nproc_per_node 5 fine-tune-dp.py \
                 --output_dir "$output_dir" \
@@ -47,7 +48,7 @@ for i in {0..99}; do
 
         for epsilon in 0; do
             echo "Processing $dataset_file with epsilon $epsilon"
-            output_dir="/data/srini/$dataset_name/${i}/${epsilon}"
+            output_dir="/data/$user_name/$dataset_name/${i}/${epsilon}"
             mkdir -p "$output_dir"
             CUDA_VISIBLE_DEVICES=0,1,2,3,4 python3 -m torch.distributed.run --nproc_per_node 5 fine-tune-nodp.py \
                 --output_dir "$output_dir" \
