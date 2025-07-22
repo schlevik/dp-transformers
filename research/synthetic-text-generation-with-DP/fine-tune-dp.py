@@ -10,11 +10,21 @@ import dp_transformers
 import transformers
 import sys
 import logging
-
+import ast
 from dataclasses import dataclass, field, asdict
-from peft import get_peft_model, LoraConfig
+from peft import get_peft_model, LoraConfig, PeftModel
 from transformers import AutoModelForCausalLM, AutoTokenizer
 from torch.utils.data import DataLoader
+from peft import get_peft_model, LoraConfig, prepare_model_for_kbit_training
+
+
+from pynvml import *
+
+def print_gpu_utilization():
+    nvmlInit()
+    handle = nvmlDeviceGetHandleByIndex(0)
+    info = nvmlDeviceGetMemoryInfo(handle)
+    print(f"GPU memory occupied: {info.used//1024**2} MB.")
 
 logger = logging.getLogger(__name__)
 
@@ -41,12 +51,20 @@ class LoraArguments:
     lora_dim: int = field(default=8, metadata={
         "help": "LoRA dimension"
     })
-    lora_alpha: int = field(default=8, metadata={
+    lora_alpha: int = field(default=16, metadata={
         "help": "LoRA alpha"
     })
     lora_dropout: float = field(default=0.0, metadata={
         "help": "LoRA dropout"
     })
+
+    target_modules: list[str] = field(
+        default_factory=list,
+        metadata={
+            "help": "List of module names or regex expression of the module names to replace with Lora."
+            "For example, ['q', 'v'] or '.*decoder.*(SelfAttention|EncDecAttention).*(q|v)$' "
+        },
+    )
 
     def as_peft_config(self) -> LoraConfig:
         if not self.enable_lora:
@@ -54,7 +72,9 @@ class LoraArguments:
         params = asdict(self)
         params.pop("enable_lora")
         params["r"] = params.pop("lora_dim")
-        params['use_rslora'] = True
+        #params['use_rslora'] = True
+        print(params['target_modules'])
+        params["target_modules"] = ast.literal_eval(params["target_modules"][0])
         return LoraConfig(**params)
 
 
@@ -102,8 +122,19 @@ def main(args: Arguments):
     logger.info(f"Privacy parameters {privacy_args}")
 
     # Load model
-    model = AutoModelForCausalLM.from_pretrained(args.script_args.model_name, attn_implementation='flash_attention_2', torch_dtype=torch.bfloat16)
-    model = model.to(train_args.device)
+    if args.lora.enable_lora:
+        bnb_config = transformers.BitsAndBytesConfig(
+           load_in_4bit=True,
+           bnb_4bit_use_double_quant=True,
+           bnb_4bit_quant_type="nf4",
+           bnb_4bit_compute_dtype=torch.bfloat16
+    )
+        model = transformers.AutoModelForCausalLM.from_pretrained(args.script_args.model_name, attn_implementation='flash_attention_2', quantization_config=bnb_config)
+        model = prepare_model_for_kbit_training(model, use_gradient_checkpointing=train_args.gradient_checkpointing)
+        model = get_peft_model(model=model, peft_config=args.lora.as_peft_config())
+    else:
+        model = AutoModelForCausalLM.from_pretrained(args.script_args.model_name, attn_implementation='flash_attention_2', torch_dtype=torch.bfloat16)
+        model = model.to(train_args.device)
 
     dataset = datasets.load_dataset('json', data_files={'train': args.script_args.train_file})
 
@@ -148,7 +179,6 @@ def main(args: Arguments):
     if train_args.local_rank == 0:
         logger.info(f"Total number of parameters of the model: {model.num_parameters(only_trainable=False)}")
         logger.info(f"Fine-tuned number of parameters of the model: {model.num_parameters(only_trainable=True)}")
-
     model = model.cuda()
     model.train()
 
@@ -171,6 +201,9 @@ def main(args: Arguments):
             print("*"*100)
             break
 
+        logger.info(f"Total number of parameters of the model: {model.num_parameters(only_trainable=False)}")
+        logger.info(f"Fine-tuned number of parameters of the model: {model.num_parameters(only_trainable=True)}")
+
     trainer = dp_transformers.dp_utils.OpacusDPTrainer(
         args=train_args,
         model=model,
@@ -192,13 +225,18 @@ def main(args: Arguments):
         })
 
     if train_args.local_rank == 0 or train_args.local_rank == -1:
+        if lora_args.enable_lora:
+           model.save_pretrained(args.train.output_dir + '/final-peft')
+           del model
+           model = PeftModel.from_pretrained(AutoModelForCausalLM.from_pretrained(args.script_args.model_name), args.train.output_dir + '/final-peft') 
+           model = model.merge_and_unload()
         metrics = train_result.metrics
         # trainer.save_model()
         model.save_pretrained(args.train.output_dir + '/final')
         tokenizer.save_pretrained(args.train.output_dir + '/final')
         trainer.log_metrics("train", metrics)
         trainer.save_metrics("train", metrics)
-
+    print_gpu_utilization()
 
 if __name__ == "__main__":
     arg_parser = transformers.HfArgumentParser((dp_transformers.TrainingArguments, dp_transformers.PrivacyArguments, ScriptArgs, LoraArguments))

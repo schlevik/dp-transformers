@@ -1,23 +1,22 @@
-dataset_name="sampled_daniel-ml"
-sequence_len=256
+dataset_name="psytar"
+sequence_len=64
 user_name="srini"
 # Iterate through all dataset files in the folder
-for i in {0..99}; do
-    dataset_file="/home/$user_name/dp-transformers/$dataset_name/dataset_${i}.jsonl"
+    dataset_file="data/cls/$dataset_name/original/train-original.jsonl"
     echo "dataset_file: $dataset_file"
     if [ -f "$dataset_file" ]; then
         echo "Processing $dataset_file"
-        for epsilon in 0.5 1 2 4; do
+        for epsilon in 4; do #0.5 1 2 4; do
             echo "Processing $dataset_file with epsilon $epsilon"
-            output_dir="/data/$user_name/$dataset_name/${i}/${epsilon}"
+            output_dir="result/$dataset_name/${epsilon}"
             mkdir -p "$output_dir"
-            CUDA_VISIBLE_DEVICES=0,1,2,3,4 python3 -m torch.distributed.run --nproc_per_node 5 fine-tune-dp.py \
-                --output_dir "$output_dir" \
+            CUDA_VISIBLE_DEVICES=0,1 python3 -m torch.distributed.run --nproc_per_node 2 fine-tune-dp.py \
+                --output_dir "$output_dir"  \
                 --model_name meta-llama/Llama-3.2-1B \
                 --train_file "$dataset_file" \
                 --sequence_len $sequence_len \
-                --per_device_train_batch_size 2 \
-                --gradient_accumulation_steps 4 \
+                --per_device_train_batch_size 16 \
+                --gradient_accumulation_steps 1 \
                 --log_level info \
                 --per_device_eval_batch_size 2 \
                 --eval_accumulation_steps 1 \
@@ -40,7 +39,9 @@ for i in {0..99}; do
                 --save_total_limit 2 \
                 --save_steps 100 \
                 --tf32 True \
-                --bf16 True
+                --bf16 True  \
+                --enable_lora \
+                --target_modules "[gate_proj, down_proj, up_proj, q_proj, v_proj, k_proj, o_proj]"
             # delete checkpoint files
             
             find "$output_dir" -maxdepth 1 -type d -name 'checkpoint-*' -exec rm -rf {} +
@@ -48,7 +49,7 @@ for i in {0..99}; do
 
         for epsilon in 0; do
             echo "Processing $dataset_file with epsilon $epsilon"
-            output_dir="/data/$user_name/$dataset_name/${i}/${epsilon}"
+            output_dir="result/$dataset_name/nodp"
             mkdir -p "$output_dir"
             CUDA_VISIBLE_DEVICES=0,1,2,3,4 python3 -m torch.distributed.run --nproc_per_node 5 fine-tune-nodp.py \
                 --output_dir "$output_dir" \
@@ -80,7 +81,6 @@ for i in {0..99}; do
             find "$output_dir" -maxdepth 1 -type d -name 'checkpoint-*' -exec rm -rf {} +
         done
     fi
-done
 # ## finetune without DP
 # python -m torch.distributed.run --nproc_per_node 8 fine-tune-nodp.py \
 #     --data_dir $DATA \
