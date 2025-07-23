@@ -3,6 +3,9 @@
 
 '''Train GPT2 model series without DP (w/ parameter-efficient approach LoRA when lora_dim > 0)'''
 
+import ast
+from peft import get_peft_model, LoraConfig, PeftModel, prepare_model_for_kbit_training
+
 import os
 import datasets
 import dp_transformers
@@ -10,7 +13,7 @@ import transformers
 import sys
 import logging
 import torch
-from dataclasses import dataclass, field
+from dataclasses import asdict, dataclass, field
 # from dp_transformers.layers.dp_merged_linear import mark_only_lora_as_trainable
 # from dp_transformers.module_modification import convert_gpt2_attention_to_lora
 from torch.utils.data import DataLoader
@@ -19,36 +22,58 @@ logger = logging.getLogger(__name__)
 
 
 @dataclass
-class ModelArguments:
-    train_file: str = field(default="./", metadata={
-        "help": "Path to training data"
+class ScriptArgs:
+    train_file: str = field(default=None, metadata={
+        "help": "Path to the train file"
     })
 
     model_name: str = field(default="gpt2", metadata={
         "help": "Model name in HuggingFace, e.g. 'gpt2'"
     })
-
-    lora_dim: int = field(default=0, metadata={
-        "help": "LoRA dimension; 0 means LoRA is disabled"
-    })
-
     sequence_len: int = field(default=128, metadata={
-        "help": "Model sequence length"
+        "help": "Maximum sequence length"
     })
 
+@dataclass
+class LoraArgs:
+    enable_lora: bool = field(default=False, metadata={
+        "help": "Whether to enable LoRA"
+    })
+    lora_dim: int = field(default=8, metadata={
+        "help": "LoRA dimension"
+    })
+    lora_alpha: int = field(default=16, metadata={
+        "help": "LoRA alpha"
+    })
     lora_dropout: float = field(default=0.0, metadata={
-        "help": "Dropout probability for LoRA layers"
+        "help": "LoRA dropout"
     })
 
-    lora_alpha: int = field(default=32, metadata={
-        "help": "LoRA attention alpha"
-    })
+    target_modules: list[str] = field(
+        default_factory=list,
+        metadata={
+            "help": "List of module names or regex expression of the module names to replace with Lora."
+            "For example, ['q', 'v'] or '.*decoder.*(SelfAttention|EncDecAttention).*(q|v)$' "
+        },
+    )
+
+    def as_peft_config(self) -> LoraConfig:
+        if not self.enable_lora:
+            raise ValueError("LoRA is not enabled, cannot convert to LoRA config")
+        params = asdict(self)
+        params.pop("enable_lora")
+        params["r"] = params.pop("lora_dim")
+        #params['use_rslora'] = True
+        print(params['target_modules'])
+        params["target_modules"] = ast.literal_eval(params["target_modules"][0])
+        return LoraConfig(**params)
 
 
 @dataclass
 class Arguments:
     train: dp_transformers.TrainingArguments
-    model: ModelArguments
+    lora: LoraArgs
+    script: ScriptArgs
 
 
 def main(args: Arguments):
@@ -76,13 +101,27 @@ def main(args: Arguments):
     logger.info(f"Training/evaluation parameters {train_args}")
 
     # Load model
-    model = transformers.AutoModelForCausalLM.from_pretrained(args.model.model_name, attn_implementation='flash_attention_2' , torch_dtype=torch.bfloat16)
-    model = model.to(train_args.device)
-
-    dataset = datasets.load_dataset('json', data_files={'train': args.model.train_file})
+    # model = transformers.AutoModelForCausalLM.from_pretrained(args.model.model_name, attn_implementation='flash_attention_2' , torch_dtype=torch.bfloat16)
+    # model = model.to(train_args.device)
+    # Load model
+    if args.lora.enable_lora:
+        bnb_config = transformers.BitsAndBytesConfig(
+        load_in_4bit=True,
+        bnb_4bit_use_double_quant=True,
+        bnb_4bit_quant_type="nf4",
+        bnb_4bit_compute_dtype=torch.bfloat16
+    )
+        model = transformers.AutoModelForCausalLM.from_pretrained(args.script.model_name, attn_implementation='flash_attention_2', quantization_config=bnb_config)
+        model = prepare_model_for_kbit_training(model, use_gradient_checkpointing=train_args.gradient_checkpointing)
+        model = get_peft_model(model=model, peft_config=args.lora.as_peft_config())
+    else:
+        model = transformers.AutoModelForCausalLM.from_pretrained(args.script.model_name, attn_implementation='flash_attention_2', torch_dtype=torch.bfloat16)
+        model = model.to(train_args.device)
+        
+    dataset = datasets.load_dataset('json', data_files={'train': args.script.train_file})
 
     # Load tokenizer
-    tokenizer = transformers.AutoTokenizer.from_pretrained(args.model.model_name)
+    tokenizer = transformers.AutoTokenizer.from_pretrained(args.script.model_name)
     num_added_toks = tokenizer.add_special_tokens({'pad_token': '[PAD]'})
     model.resize_token_embeddings(len(tokenizer))
 
@@ -105,7 +144,7 @@ def main(args: Arguments):
             batch.append(text)
 
         result = tokenizer(batch, padding="longest", truncation=True,
-                            max_length=args.model.sequence_len)
+                            max_length=args.script.sequence_len)
         return result
     
     train_data = dataset['train']
@@ -158,6 +197,11 @@ def main(args: Arguments):
     train_result = trainer.train()
 
     if train_args.local_rank == 0 or train_args.local_rank == -1:
+        if args.lora.enable_lora:
+            model.save_pretrained(args.train.output_dir + '/final-peft')
+            del model
+            model = PeftModel.from_pretrained(transformers.AutoModelForCausalLM.from_pretrained(args.script.model_name), args.train.output_dir + '/final-peft') 
+            model = model.merge_and_unload()
         metrics = train_result.metrics
         model.save_pretrained(args.train.output_dir + '/final')
         tokenizer.save_pretrained(args.train.output_dir + '/final')
@@ -165,6 +209,6 @@ def main(args: Arguments):
         trainer.save_metrics("train", metrics)
 
 if __name__ == "__main__":
-    arg_parser = transformers.HfArgumentParser((dp_transformers.TrainingArguments, ModelArguments))
-    train_args, model_args = arg_parser.parse_args_into_dataclasses()
-    main(Arguments(train=train_args, model=model_args))
+    arg_parser = transformers.HfArgumentParser((dp_transformers.TrainingArguments, ScriptArgs, LoraArgs))
+    train_args, script_args, lora_args = arg_parser.parse_args_into_dataclasses()
+    main(Arguments(train=train_args, script=script_args, lora=lora_args))
