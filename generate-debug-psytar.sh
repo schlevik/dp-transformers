@@ -2,18 +2,18 @@ dataset_name="psytar"
 
 
 export VLLM_WORKER_MULTIPROC_METHOD=spawn
-    for epsilon in 4; do # 0 0.5 1 2 4; do
+    for epsilon in 0.5 1 2 4; do # 0 0.5 1 2 4; do
         echo "Model checkpoint ${i} with noise ${epsilon}"
         output_dir="./generated-data/$dataset_name/${epsilon}"
         mkdir -p "$output_dir"
         CUDA_VISIBLE_DEVICES=0 python generate.py \
             --checkpoint_file "research/synthetic-text-generation-with-DP/result/$dataset_name/${epsilon}/final/" \
-            --original_train_file  "/home/$user_name/dp-transformers/$dataset_name/train-original.jsonl" \
-            --dataset nlg-reddit \
-            --output_file "/data/$user_name/$dataset_name/output_v2/${i}/${epsilon}/output.jsonl" \
+            --original_train_file  "research/synthetic-text-generation-with-DP/data/cls/$dataset_name/original/train-original.jsonl" \
+            --dataset "$dataset_name" \
+            --output_file "$output_dir/output.jsonl" \
             --dataset_description "dptransformer" \
             --batch_size 16 \
-            --max_sequence_len 2048 \
+            --max_sequence_len 195 \
             --temperature 0.9
     done
 # CUDA_VISIBLE_DEVICES=4 python generate.py \
