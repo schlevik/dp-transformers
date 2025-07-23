@@ -75,7 +75,7 @@ if [ -f "$dataset_file" ]; then
             --prediction_loss_only \
             --weight_decay 0.01 \
             --remove_unused_columns False \
-            --num_train_epochs 5 \
+            --num_train_epochs 10 \
             --logging_steps 5 \
             --max_grad_norm 0 \
             --lr_scheduler_type cosine \

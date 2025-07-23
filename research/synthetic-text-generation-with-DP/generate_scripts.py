@@ -5,10 +5,10 @@ from pathlib import Path
 
 # Configuration
 datasets = {
-    "psytar": {"max_length": 195, "batch_size": 32, 'num_epochs': 5},
-    "Daniel-ml": {"max_length": 135, "batch_size": 32, 'num_epochs': 5}, 
-    "asylax": {"max_length": 4141, "batch_size": 2, 'num_epochs': 5},
-    "n2c2": {"max_length": 3072, "batch_size": 2, 'num_epochs': 5}
+    "psytar": {"max_length": 195, "batch_size": 32, 'num_epochs': 10},
+    "Daniel-ml": {"max_length": 135, "batch_size": 32, 'num_epochs': 10}, 
+    "asylax": {"max_length": 4141, "batch_size": 2, 'num_epochs': 10},
+    "n2c2": {"max_length": 3072, "batch_size": 2, 'num_epochs': 10}
 }
 
 models = {
