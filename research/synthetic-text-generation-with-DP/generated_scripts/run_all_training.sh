@@ -1,24 +1,14 @@
 #!/bin/bash
 
 # Master script to run all dataset-model combinations
-# Usage: ./run_all_training.sh [dataset] [model] [debug]
+# Usage: ./run_all_training.sh [dataset] [model]
 # If no arguments provided, runs all combinations
-# Use 'debug' as third argument to run debug versions
 
 datasets=("psytar" "Daniel-ml" "asylax" "n2c2")
 models=("Llama-3.2-1B-Instruct" "Llama-3.2-3B-Instruct" "Llama-3.1-8B-Instruct" "Llama-3.3-70B-Instruct")
 
 target_dataset="$1"
 target_model="$2"
-debug_mode="$3"
-
-if [[ "$debug_mode" == "debug" ]]; then
-    echo "Running in DEBUG MODE - short training with cleanup"
-    script_prefix="debug_"
-else
-    echo "Running in PRODUCTION MODE - full training"
-    script_prefix=""
-fi
 
 echo "Starting training runs..."
 echo "Target dataset: ${target_dataset:-all}"
@@ -36,7 +26,7 @@ for dataset in "${datasets[@]}"; do
             continue
         fi
         
-        script_name="${script_prefix}run_${dataset}_${model}.sh"
+        script_name="run_${dataset}_${model}.sh"
         echo "Running: $script_name"
         
         if [[ -f "$script_name" ]]; then
