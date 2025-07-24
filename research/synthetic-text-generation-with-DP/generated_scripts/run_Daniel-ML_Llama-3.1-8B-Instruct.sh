@@ -1,10 +1,10 @@
 #!/bin/bash
 
-# Training script for n2c2 with Llama-3.2-3B-Instruct
-dataset_name="n2c2"
-sequence_len=3072
+# Training script for Daniel-ML with Llama-3.1-8B-Instruct
+dataset_name="Daniel-ML"
+sequence_len=135
 user_name="srini"
-model_name="meta-llama/Llama-3.2-3B-Instruct"
+model_name="meta-llama/Llama-3.1-8B-Instruct"
 
 # Dataset file path
 dataset_file="data/cls/$dataset_name/original/train-original.jsonl"
@@ -23,8 +23,8 @@ if [ -f "$dataset_file" ]; then
             --model_name "$model_name" \
             --train_file "$dataset_file" \
             --sequence_len $sequence_len \
-            --per_device_train_batch_size 1 \
-            --gradient_accumulation_steps 2 \
+            --per_device_train_batch_size 8 \
+            --gradient_accumulation_steps 4 \
             --log_level info \
             --per_device_eval_batch_size 2 \
             --eval_accumulation_steps 1 \
@@ -66,8 +66,8 @@ if [ -f "$dataset_file" ]; then
             --model_name "$model_name" \
             --train_file "$dataset_file" \
             --sequence_len $sequence_len \
-            --per_device_train_batch_size 1 \
-            --gradient_accumulation_steps 2 \
+            --per_device_train_batch_size 8 \
+            --gradient_accumulation_steps 4 \
             --log_level info \
             --per_device_eval_batch_size 2 \
             --eval_accumulation_steps 1 \

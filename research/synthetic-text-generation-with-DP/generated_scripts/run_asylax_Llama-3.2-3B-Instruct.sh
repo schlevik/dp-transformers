@@ -23,7 +23,7 @@ if [ -f "$dataset_file" ]; then
             --model_name "$model_name" \
             --train_file "$dataset_file" \
             --sequence_len $sequence_len \
-            --per_device_train_batch_size 1 \
+            --per_device_train_batch_size 2 \
             --gradient_accumulation_steps 2 \
             --log_level info \
             --per_device_eval_batch_size 2 \
@@ -66,7 +66,7 @@ if [ -f "$dataset_file" ]; then
             --model_name "$model_name" \
             --train_file "$dataset_file" \
             --sequence_len $sequence_len \
-            --per_device_train_batch_size 1 \
+            --per_device_train_batch_size 2 \
             --gradient_accumulation_steps 2 \
             --log_level info \
             --per_device_eval_batch_size 2 \
