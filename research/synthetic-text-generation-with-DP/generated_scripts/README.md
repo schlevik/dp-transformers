@@ -1,8 +1,8 @@
 # Training Configuration Summary
 
 ## Datasets
-- psytar: max_length=195, base_batch_size=32
-- Daniel-ml: max_length=135, base_batch_size=32
+- psytar: max_length=195, base_batch_size=16
+- Daniel-ml: max_length=135, base_batch_size=16
 - asylax: max_length=4141, base_batch_size=2
 - n2c2: max_length=3072, base_batch_size=2
 
@@ -13,19 +13,43 @@
 - Llama-3.3-70B-Instruct: batch_multiplier=0.125, grad_accum=8
 
 ## Generated Scripts
-Total scripts generated: 16
+Total production scripts: 16
+Total debug scripts: 16
+Total scripts: 32
+
+## Debug vs Production
+**Debug scripts:**
+- Train for only 0.01 epochs (~few steps)
+- Test only epsilon=4 and nodp
+- Save to `debug_result/` folder
+- Auto-delete models after successful completion
+- Keep failed models for debugging
+- Perfect for validating setup
+
+**Production scripts:**
+- Train for full 10 epochs
+- Test all epsilon values: 0.5, 1, 2, 4, nodp
+- Save to `result/` folder
+- Keep all models
+- For actual experiments
 
 ## Usage
 ```bash
-# Run all combinations
+# Test everything quickly (recommended first step)
+./run_debug_training.sh
+
+# Test specific dataset
+./run_debug_training.sh psytar
+
+# Test specific combination
+./run_debug_training.sh psytar Llama-3.2-1B-Instruct
+
+# Run production training (after debug passes)
 ./run_all_training.sh
 
-# Run specific dataset
-./run_all_training.sh psytar
+# Run production with debug flag
+./run_all_training.sh '' '' debug
 
-# Run specific dataset-model combination
-./run_all_training.sh psytar Llama-3.2-1B-Instruct
-
-# Run individual script
-./run_psytar_Llama-3.2-1B-Instruct.sh
+# Run individual debug script
+./debug_run_psytar_Llama-3.2-1B-Instruct.sh
 ```
