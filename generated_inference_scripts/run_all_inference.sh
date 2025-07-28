@@ -29,9 +29,9 @@ for dataset in "${datasets[@]}"; do
         script_name="generate_${dataset}_${model}.sh"
         echo "Running: $script_name"
         
-        if [[ -f "$script_name" ]]; then
-            chmod +x "$script_name"
-            ./"$script_name"
+        if [[ -f "./generated_inference_scripts/${script_name}" ]]; then
+            chmod +x "./generated_inference_scripts/${script_name}"
+            ./generated_inference_scripts/"$script_name"
             
             if [[ $? -eq 0 ]]; then
                 echo "✓ Completed: $script_name"
