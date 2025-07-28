@@ -7,8 +7,8 @@ from pathlib import Path
 datasets = {
     "psytar": {"max_length": 195, "batch_size": 16},
     "Daniel-ML": {"max_length": 135, "batch_size": 16}, 
-    "asylax": {"max_length": 4141, "batch_size": 2},
-    "n2c2_2008": {"max_length": 3072, "batch_size": 2}
+    "asylax": {"max_length": 4141, "batch_size": 4},
+    "n2c2_2008": {"max_length": 3072, "batch_size": 4}
 }
 
 models = {

@@ -6,9 +6,9 @@ from pathlib import Path
 # Configuration
 datasets = {
     "psytar": {"max_length": 195, "batch_size": 32, 'num_epochs': 10},
-    "Daniel-ml": {"max_length": 135, "batch_size": 32, 'num_epochs': 10}, 
-    "asylax": {"max_length": 4141, "batch_size": 2, 'num_epochs': 10},
-    "n2c2": {"max_length": 3072, "batch_size": 2, 'num_epochs': 10}
+    "Daniel-ML": {"max_length": 135, "batch_size": 32, 'num_epochs': 10}, 
+    "asylax": {"max_length": 4141, "batch_size": 4, 'num_epochs': 10},
+    "n2c2_2008": {"max_length": 3072, "batch_size": 4, 'num_epochs': 10}
 }
 
 models = {
@@ -156,7 +156,7 @@ def generate_master_script():
 # Usage: ./run_all_training.sh [dataset] [model]
 # If no arguments provided, runs all combinations
 
-datasets=("psytar" "Daniel-ml" "asylax" "n2c2")
+datasets=("psytar" "Daniel-ML" "asylax" "n2c2_2008")
 models=("Llama-3.2-1B-Instruct" "Llama-3.2-3B-Instruct" "Llama-3.1-8B-Instruct" "Llama-3.3-70B-Instruct")
 
 target_dataset="$1"
