@@ -1,3 +1,10 @@
 scratch
 result
 mlruns
+
+
+*.json
+*.bin
+*.pth
+*.pt
+*.csv

@@ -2,12 +2,14 @@
 
 
 dataset_name=$1
-rand_set=$2
+
 sequence_len=256
 user_name="srini"
 gpu_device=$2
 start=$3
 end=$4
+model_name=allenai/OLMo-2-0425-1B
+number_epochs=10
 # Check that all required input variables are provided correctly
 if [ -z "$dataset_name" ]; then
     echo "Error: dataset_name argument is required."
@@ -34,10 +36,10 @@ if [ -z "$end" ]; then
 fi
 
 set -euo pipefail 
-data_dir=/mnt/nvme1/yidan/MIA/data/cls/eurlex/D_sample/$dataset_name/$rand_set
+data_dir=/mnt/nvme1/yidan/MIA/data/cls/$dataset_name/original
 for idx in $(seq $start $end); do
-    dataset_file="$data_dir/dataset_${idx}.jsonl"
-    for epsilon in 0 4; do
+    dataset_file="$data_dir/train-original.jsonl"
+    for epsilon in 0 0.5 1 2 4; do
         echo "Processing $dataset_file with epsilon $epsilon"
         dataset_temp=$(basename $dataset_file)
         echo "dataset_temp: $dataset_temp"

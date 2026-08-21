@@ -1,0 +1,30 @@
+epsilon=2.61
+python -m torch.distributed.run --nproc_per_node 2 --master_port 12345 finetune_viktor.py \
+    --output_dir result/n2c2_2008/real-noise-$epsilon \
+    --model_name meta-llama/Llama-3.2-1B \
+    --train_file "/home/srini/dp-transformers/sampled_n2c2/dataset_0.jsonl" \
+    --sequence_len 3072 \
+    --per_device_train_batch_size 2 \
+    --gradient_accumulation_steps 1 \
+    --evaluation_strategy no \
+    --eval_steps 45 \
+    --log_level info \
+    --per_device_eval_batch_size 2 \
+    --eval_accumulation_steps 1 \
+    --seed 42 \
+    --target_epsilon $epsilon \
+    --per_sample_max_grad_norm 1.0 \
+    --prediction_loss_only \
+    --weight_decay 0.01 \
+    --remove_unused_columns False \
+    --num_train_epochs 3 \
+    --logging_steps 5 \
+    --max_grad_norm 0 \
+    --lr_scheduler_type cosine \
+    --learning_rate 1e-4 \
+    --disable_tqdm False \
+    --dataloader_num_workers 2 \
+    --label_names labels \
+    --save_safetensors false \
+    --bf16 True \
+    --fp16 False

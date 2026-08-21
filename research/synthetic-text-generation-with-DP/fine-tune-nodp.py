@@ -76,7 +76,8 @@ def main(args: Arguments):
     logger.info(f"Training/evaluation parameters {train_args}")
 
     # Load model
-    model = transformers.AutoModelForCausalLM.from_pretrained(args.model.model_name, attn_implementation='flash_attention_2' , torch_dtype=torch.bfloat16)
+    model = transformers.AutoModelForCausalLM.from_pretrained(args.model.model_name, use_safetensors=True,
+     attn_implementation='flash_attention_2' , torch_dtype=torch.bfloat16)
     model = model.to(train_args.device)
 
     dataset = datasets.load_dataset('json', data_files={'train': args.model.train_file})
@@ -85,14 +86,16 @@ def main(args: Arguments):
     tokenizer = transformers.AutoTokenizer.from_pretrained(args.model.model_name)
     num_added_toks = tokenizer.add_special_tokens({'pad_token': '[PAD]'})
     model.resize_token_embeddings(len(tokenizer))
+    
+    print("num_added_toks" , num_added_toks)
+    if num_added_toks > 0:
+        input_embeddings = model.get_input_embeddings().weight.data
+        output_embeddings = model.get_output_embeddings().weight.data
+        input_embeddings_average = input_embeddings[:-num_added_toks].mean(dim=0, keepdim=True)
+        output_embeddings_average = output_embeddings[:-num_added_toks].mean(dim=0, keepdim=True)
 
-    input_embeddings = model.get_input_embeddings().weight.data
-    output_embeddings = model.get_output_embeddings().weight.data
-    input_embeddings_average = input_embeddings[:-num_added_toks].mean(dim=0, keepdim=True)
-    output_embeddings_average = output_embeddings[:-num_added_toks].mean(dim=0, keepdim=True)
-
-    input_embeddings[-num_added_toks:] = input_embeddings_average
-    output_embeddings[-num_added_toks:] = output_embeddings_average
+        input_embeddings[-num_added_toks:] = input_embeddings_average
+        output_embeddings[-num_added_toks:] = output_embeddings_average
 
 
     label_column_names = [name for name in dataset["train"].column_names if "label" in name]

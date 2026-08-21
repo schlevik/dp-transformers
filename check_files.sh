@@ -1,0 +1,1 @@
+for i in {0..99}; do for d in 0 4; do f="dataset_$i/$d/output.jsonl"; if [ ! -f "$f" ]; then echo "$f missing"; elif [ "$(wc -l < "$f")" -ne 1000 ]; then echo "$f has $(wc -l < "$f") lines"; fi; done; done

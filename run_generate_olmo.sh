@@ -11,7 +11,6 @@ dataset_name=$1
 GPU=$2
 start=$3
 end=$4
-rand_type=$5
 
 # Ensure all 4 arguments are provided by the user
 if [ -z "$dataset_name" ] || [ -z "$GPU" ] || [ -z "$start" ] || [ -z "$end" ]; then
@@ -23,24 +22,25 @@ set -euo pipefail
 
 
 sequence_len=256
-data_dir=/mnt/nvme1/yidan/MIA/data/cls/eurlex/D_sample/$dataset_name/$rand_type
+model_name=allenai/OLMo-2-0425-1B
+data_dir=/mnt/nvme1/yidan/MIA/data/cls/$dataset_name/original
 
 for idx in $(seq $start $end); do
-    dataset_file="$data_dir/dataset_${idx}.jsonl"
+    dataset_file="$data_dir/train-original.jsonl"
     echo "dataset_file: $dataset_file"
     dataset_temp=$(basename $dataset_file)
     i=${dataset_temp%.jsonl}
     echo "i: $i"
-    for epsilon in 0 4; do
+    for epsilon in 0 0.5 1 2 4; do
         echo "Model checkpoint ${i} with noise ${epsilon}"
-        output_dir="/mnt/nvme1/srini/dp_outputs/$dataset_name/control_group/$rand_type/${i}/${epsilon}"
+        output_dir="/mnt/nvme1/srini/dp_outputs/$dataset_name/$model_name/full_split/10_epochs/${i}/${epsilon}"
         output_file="$output_dir/output.jsonl"
         if [ -f "$output_file" ]; then
             echo "Output file already exists: $output_file"
             continue
         fi
         mkdir -p "$output_dir"
-        model_dir="/mnt/nvme1/srini/rerun_strategy1/$dataset_name/control_group/$rand_type/$i/${epsilon}/final/"
+        model_dir="/mnt/nvme1/srini/rerun_strategy1/$dataset_name/$model_name/full_split/${i}/${epsilon}/final/"
         echo " Loading Model from $model_dir"
         CUDA_VISIBLE_DEVICES=$GPU python generate.py \
             --checkpoint_file "$model_dir" \

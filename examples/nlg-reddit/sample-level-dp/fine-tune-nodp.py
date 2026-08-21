@@ -8,12 +8,12 @@ import dp_transformers
 import transformers
 import sys
 import logging
-
+import torch
 from dataclasses import dataclass, field
 from dataclasses import dataclass, field, asdict
 from peft import get_peft_model, LoraConfig
-
-
+from transformers import DataCollatorForLanguageModeling
+from torch.utils.data import DataLoader
 logger = logging.getLogger(__name__)
 
 
@@ -56,6 +56,19 @@ class LoraArguments:
 
 
 @dataclass
+class DataCollatorForSupervisedDataset(object):
+    """Collate examples for supervised fine-tuning."""
+
+    tokenizer: transformers.PreTrainedTokenizer
+
+    def __call__(self, instances):
+        input_ids, labels, attention_mask = tuple([instance[key] for instance in instances] for key in ("input_ids", "labels", "attention_mask"))
+        return dict(
+            input_ids= torch.tensor(input_ids),
+            labels= torch.tensor(labels),
+            attention_mask= torch.tensor(attention_mask),
+        )
+@dataclass
 class Arguments:
     train: dp_transformers.TrainingArguments
     script_args: ScriptArgs
@@ -97,11 +110,28 @@ def main(args: Arguments):
     tokenizer.pad_token = tokenizer.eos_token
 
     # Tokenize data
+    def preprocess_function(examples):
+        text = "\t".join([item for item in examples['label']])+ "\n\n" + examples['text'] + tokenizer.eos_token    
+        result = tokenizer(text, truncation=True, padding="max_length", padding_side="left", max_length=args.script_args.sequence_len)
+        result['labels'] = result['input_ids'].copy()
+        for i in range(len(result['attention_mask'])):
+            if result['attention_mask'][i] == 0:
+                result['labels'][i] = -100
+        return result
+
+    # Tokenize data
     with train_args.main_process_first(desc="tokenizing dataset"):
-        dataset = dataset.map(
-            lambda batch: tokenizer(batch['text'], padding="max_length", truncation=True, max_length=args.script_args.sequence_len),
-            batched=True, num_proc=8, desc="tokenizing dataset", remove_columns=dataset.column_names['train']
-        )
+        # dataset = dataset.map(
+        #     lambda batch: tokenizer(batch['text'], padding="max_length", truncation=True, max_length=args.script_args.sequence_len),
+        #     batched=True, num_proc=8, desc="tokenizing dataset", remove_columns=dataset.column_names['train']
+        # )
+        final_data = dataset['train']
+        final_data = final_data.map(preprocess_function, desc="tokenizing dataset",  remove_columns=dataset.column_names['train']).train_test_split(test_size=0.1)
+
+
+    print("final data is " , final_data)
+    print("sample data is " , tokenizer.decode(final_data['train']['input_ids'][0]))
+    print("sample data label" , tokenizer.decode([x for x in final_data['train']['labels'][0] if x != -100]))
 
     if args.lora.enable_lora:
         logger.info("Using LoRA")
@@ -116,13 +146,14 @@ def main(args: Arguments):
     model = model.cuda()
     model.train()
 
-    data_collator = dp_transformers.DataCollatorForPrivateCausalLanguageModeling(tokenizer)
-
+    data_collator = DataCollatorForSupervisedDataset(tokenizer) #dp_transformers.DataCollatorForPrivateCausalLanguageModeling(tokenizer)
+    dataloader = DataLoader(final_data['train'], batch_size=16, shuffle=True, collate_fn=data_collator)
+    
     trainer = transformers.Trainer(
         args=train_args,
         model=model,
-        train_dataset=dataset['train'],
-        eval_dataset=dataset['train'][:100],
+        train_dataset=final_data['train'],
+        eval_dataset=final_data['test'],
         data_collator=data_collator,
     )
 

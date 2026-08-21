@@ -10,14 +10,21 @@ import dp_transformers
 import transformers
 import sys
 import logging
-
+import ast
 from dataclasses import dataclass, field, asdict
-from peft import get_peft_model, LoraConfig, prepare_model_for_kbit_training, PeftModel
+from peft import get_peft_model, LoraConfig, PeftModel
 from transformers import AutoModelForCausalLM, AutoTokenizer
 from torch.utils.data import DataLoader
-from typing import List
-import ast 
+from peft import get_peft_model, LoraConfig, prepare_model_for_kbit_training
 
+
+from pynvml import *
+
+def print_gpu_utilization():
+    nvmlInit()
+    handle = nvmlDeviceGetHandleByIndex(0)
+    info = nvmlDeviceGetMemoryInfo(handle)
+    print(f"GPU memory occupied: {info.used//1024**2} MB.")
 
 logger = logging.getLogger(__name__)
 
@@ -50,10 +57,14 @@ class LoraArguments:
     lora_dropout: float = field(default=0.0, metadata={
         "help": "LoRA dropout"
     })
-    target_modules: List[str] = field(default_factory=list, metadata={
-        "help": "List of module names or regex expression of the module names to replace with Lora."
-        "For example, ['q', 'v'] or '.*decoder.*(SelfAttention|EncDecAttention).*(q|v)$' "
-    })
+
+    target_modules: list[str] = field(
+        default_factory=list,
+        metadata={
+            "help": "List of module names or regex expression of the module names to replace with Lora."
+            "For example, ['q', 'v'] or '.*decoder.*(SelfAttention|EncDecAttention).*(q|v)$' "
+        },
+    )
 
     def as_peft_config(self) -> LoraConfig:
         if not self.enable_lora:
@@ -61,8 +72,9 @@ class LoraArguments:
         params = asdict(self)
         params.pop("enable_lora")
         params["r"] = params.pop("lora_dim")
+        #params['use_rslora'] = True
+        print(params['target_modules'])
         params["target_modules"] = ast.literal_eval(params["target_modules"][0])
-        params['use_rslora'] = True
         return LoraConfig(**params)
 
 
@@ -109,19 +121,18 @@ def main(args: Arguments):
     logger.info(f"Training/evaluation parameters {train_args}")
     logger.info(f"Privacy parameters {privacy_args}")
 
+    # Load model
     if args.lora.enable_lora:
-        print("Lora Training Enabled.....")
         bnb_config = transformers.BitsAndBytesConfig(
-            load_in_4bit=True,
-            bnb_4bit_use_double_quant=True,
-            bnb_4bit_quant_type="nf4",
-            bnb_4bit_compute_dtype=torch.bfloat16
-        )
-        model = AutoModelForCausalLM.from_pretrained(args.script_args.model_name, use_safetensors=True, attn_implementation='flash_attention_2',  quantization_config=bnb_config)
+           load_in_4bit=True,
+           bnb_4bit_use_double_quant=True,
+           bnb_4bit_quant_type="nf4",
+           bnb_4bit_compute_dtype=torch.bfloat16
+    )
+        model = transformers.AutoModelForCausalLM.from_pretrained(args.script_args.model_name, attn_implementation='flash_attention_2', quantization_config=bnb_config)
         model = prepare_model_for_kbit_training(model, use_gradient_checkpointing=train_args.gradient_checkpointing)
         model = get_peft_model(model=model, peft_config=args.lora.as_peft_config())
     else:
-    # Load model
         model = AutoModelForCausalLM.from_pretrained(args.script_args.model_name, attn_implementation='flash_attention_2', torch_dtype=torch.bfloat16)
         model = model.to(train_args.device)
 
@@ -133,16 +144,16 @@ def main(args: Arguments):
     print("adding special tokens " , num_added_toks)
     model.resize_token_embeddings(len(tokenizer))
 
-    if num_added_toks > 0:
-        input_embeddings = model.get_input_embeddings().weight.data
-        output_embeddings = model.get_output_embeddings().weight.data
-        input_embeddings_average = input_embeddings[:-num_added_toks].mean(dim=0, keepdim=True)
-        output_embeddings_average = output_embeddings[:-num_added_toks].mean(dim=0, keepdim=True)
+    input_embeddings = model.get_input_embeddings().weight.data
+    output_embeddings = model.get_output_embeddings().weight.data
+    input_embeddings_average = input_embeddings[:-num_added_toks].mean(dim=0, keepdim=True)
+    output_embeddings_average = output_embeddings[:-num_added_toks].mean(dim=0, keepdim=True)
 
-        input_embeddings[-num_added_toks:] = input_embeddings_average
-        output_embeddings[-num_added_toks:] = output_embeddings_average
+    input_embeddings[-num_added_toks:] = input_embeddings_average
+    output_embeddings[-num_added_toks:] = output_embeddings_average
     
     label_column_names = [name for name in dataset["train"].column_names if "label" in name]
+    label_map = { 0: "reject",  1: "granted", 2: "uncertain" }
     # Tokenize data
     def preprocess_function(examples):
         batch = []
@@ -162,16 +173,12 @@ def main(args: Arguments):
 
     print("padding token" , tokenizer.pad_token)
 
-    logger.info(f"Total number of parameters of the model: {model.num_parameters(only_trainable=False)}")
-    logger.info(f"Number of trainable parameters of the model: {model.num_parameters(only_trainable=True)}")
-
     num_samples = len(train_data)
     privacy_args.target_delta = 1.0/(num_samples**2)
     
     if train_args.local_rank == 0:
         logger.info(f"Total number of parameters of the model: {model.num_parameters(only_trainable=False)}")
         logger.info(f"Fine-tuned number of parameters of the model: {model.num_parameters(only_trainable=True)}")
-
     model = model.cuda()
     model.train()
 
@@ -193,8 +200,10 @@ def main(args: Arguments):
             print(tokenizer.decode(res))
             print("*"*100)
             break
-    
-    print("training arguments", train_args)
+
+        logger.info(f"Total number of parameters of the model: {model.num_parameters(only_trainable=False)}")
+        logger.info(f"Fine-tuned number of parameters of the model: {model.num_parameters(only_trainable=True)}")
+
     trainer = dp_transformers.dp_utils.OpacusDPTrainer(
         args=train_args,
         model=model,
@@ -216,20 +225,20 @@ def main(args: Arguments):
         })
 
     if train_args.local_rank == 0 or train_args.local_rank == -1:
-        if args.lora.enable_lora:
-            model.save_pretrained(args.train.output_dir + '/final_lora')
-            tokenizer.save_pretrained(args.train.output_dir + '/final_lora')
-            del model
-            model = PeftModel.from_pretrained(AutoModelForCausalLM.from_pretrained(args.script_args.model_name), args.train.output_dir + '/final_lora')
-            model = model.merge_and_unload()
-           
+        if lora_args.enable_lora:
+           model.save_pretrained(args.train.output_dir + '/final-peft')
+           del model
+           base_model = AutoModelForCausalLM.from_pretrained(args.script_args.model_name)
+           base_model.resize_token_embeddings(len(tokenizer))
+           model = PeftModel.from_pretrained(base_model, args.train.output_dir + '/final-peft') 
+           model = model.merge_and_unload()
         metrics = train_result.metrics
         # trainer.save_model()
         model.save_pretrained(args.train.output_dir + '/final')
         tokenizer.save_pretrained(args.train.output_dir + '/final')
         trainer.log_metrics("train", metrics)
         trainer.save_metrics("train", metrics)
-
+    print_gpu_utilization()
 
 if __name__ == "__main__":
     arg_parser = transformers.HfArgumentParser((dp_transformers.TrainingArguments, dp_transformers.PrivacyArguments, ScriptArgs, LoraArguments))

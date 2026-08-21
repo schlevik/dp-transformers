@@ -290,4 +290,5 @@ class CNNDataset(Dataset):
         return {k: round(v, 4) for k, v in result.items()}
 
 
-ALL_DATASETS = {"sst2": SST2Dataset, "qnli": QNLIDataset, "cnn": CNNDataset}
+ALL_DATASETS = {"sst2": SST2Dataset, "qnli": QNLIDataset, "cnn": CNNDataset, 
+}

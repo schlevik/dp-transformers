@@ -1,49 +1,22 @@
-#!/usr/bin/env bash
-
-
 dataset_name=$1
-rand_set=$2
-sequence_len=256
+
+sequence_len=2048
 user_name="srini"
 gpu_device=$2
 start=$3
 end=$4
-# Check that all required input variables are provided correctly
-if [ -z "$dataset_name" ]; then
-    echo "Error: dataset_name argument is required."
-    echo "Usage: $0 <dataset_name> <gpu_device> <start> <end>"
-    exit 1
-fi
+rand_type=$5
 
-if [ -z "$gpu_device" ]; then
-    echo "Error: gpu_device argument is required."
-    echo "Usage: $0 <dataset_name> <gpu_device> <start> <end>"
-    exit 1
-fi
-
-if [ -z "$start" ]; then
-    echo "Error: start argument is required."
-    echo "Usage: $0 <dataset_name> <gpu_device> <start> <end>"
-    exit 1
-fi
-
-if [ -z "$end" ]; then
-    echo "Error: end argument is required."
-    echo "Usage: $0 <dataset_name> <gpu_device> <start> <end>"
-    exit 1
-fi
-
-set -euo pipefail 
-data_dir=/mnt/nvme1/yidan/MIA/data/cls/eurlex/D_sample/$dataset_name/$rand_set
+data_dir=/mnt/nvme1/yidan/MIA/data/cls/$dataset_name/D_sample/sampled_${rand_type}_datasets
 for idx in $(seq $start $end); do
-    dataset_file="$data_dir/dataset_${idx}.jsonl"
-    for epsilon in 0 4; do
+    dataset_file="$data_dir/dataset_$idx.jsonl"
+    for epsilon in 4; do
         echo "Processing $dataset_file with epsilon $epsilon"
         dataset_temp=$(basename $dataset_file)
         echo "dataset_temp: $dataset_temp"
         i=${dataset_temp%.jsonl}
         echo "i: $i"
-        output_dir="/mnt/nvme1/srini/rerun_strategy1/$dataset_name/$model_name/full_split/${i}/${epsilon}"
+        output_dir="/mnt/nvme1/srini/rerun_strategy1/$dataset_name/control_group/sampled_${rand_type}_datasets/${i}/${epsilon}"
         echo "output dir: $output_dir"
         echo "epsilon: $epsilon"
         mkdir -p "$output_dir"
@@ -51,11 +24,11 @@ for idx in $(seq $start $end); do
             echo "no DP"
             CUDA_VISIBLE_DEVICES=$gpu_device python3 fine-tune-nodp.py \
                         --output_dir "$output_dir" \
-                        --model_name $model_name \
+                        --model_name meta-llama/Llama-3.2-1B \
                         --train_file "$dataset_file" \
                         --sequence_len $sequence_len \
-                        --per_device_train_batch_size 4 \
-                        --gradient_accumulation_steps 4 \
+                        --per_device_train_batch_size 2 \
+                        --gradient_accumulation_steps 2 \
                         --log_level info \
                         --per_device_eval_batch_size 2 \
                         --eval_accumulation_steps 1 \
@@ -63,7 +36,7 @@ for idx in $(seq $start $end); do
                         --prediction_loss_only \
                         --weight_decay 0.01 \
                         --remove_unused_columns False \
-                        --num_train_epochs $number_epochs \
+                        --num_train_epochs 5 \
                         --logging_steps 5 \
                         --max_grad_norm 0 \
                         --lr_scheduler_type cosine \
@@ -83,11 +56,11 @@ for idx in $(seq $start $end); do
             echo "epsilon: $epsilon"
             CUDA_VISIBLE_DEVICES=$gpu_device python3 fine-tune-dp.py \
                         --output_dir "$output_dir" \
-                        --model_name $model_name \
+                        --model_name meta-llama/Llama-3.2-1B \
                         --train_file "$dataset_file" \
                         --sequence_len $sequence_len \
-                        --per_device_train_batch_size 4 \
-                        --gradient_accumulation_steps 4 \
+                        --per_device_train_batch_size 2 \
+                        --gradient_accumulation_steps 2 \
                         --log_level info \
                         --per_device_eval_batch_size 2 \
                         --eval_accumulation_steps 1 \
@@ -97,7 +70,7 @@ for idx in $(seq $start $end); do
                         --per_sample_max_grad_norm 1.0 \
                         --weight_decay 0.01 \
                         --remove_unused_columns False \
-                        --num_train_epochs $number_epochs \
+                        --num_train_epochs 5 \
                         --logging_steps 5 \
                         --max_grad_norm 0 \
                         --lr_scheduler_type cosine \

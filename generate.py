@@ -86,38 +86,48 @@ def main(script_args: ScriptArgs):
     )
     print("temperature", script_args.temperature)
     sampling_params = SamplingParams(max_tokens=script_args.max_sequence_len, temperature=script_args.temperature)
-    llm = LLM(model=script_args.checkpoint_file, tensor_parallel_size=1)
+    llm = LLM(model=script_args.checkpoint_file, tensor_parallel_size=1, gpu_memory_utilization=0.7)
     # prepare prompts
     prompts = []
     ds = load_dataset("json", data_files=original_train_file)["train"]
-    label_map = { 0: "reject",  1: "granted", 2: "uncertain" }
     if script_args.debug:
         ds = ds.select([0, 1, 2, 3, 4])
     for d in tqdm(ds, desc="Preparing prompts..."):
         label = "\t".join(d["label"]).strip()
         prompts.append(f"{label}\n\n")
-       
-    results = llm.generate(prompts, sampling_params)
+
+    if script_args.batch_size <=0:
+        raise ValueError
     outputs = []
-   
-    for d, output in zip(ds, results):
-        prompt = output.prompt
-        generated_text = output.outputs[0].text
-        # print(f"Prompt: {prompt!r}, Generated text: {generated_text!r}")
-        result = {
-            "prompt": prompt,
-            "text": generated_text,
-            "label": d["label"]
-        }
-        outputs.append(result)
-    if script_args.debug:
-        for o in outputs:
-            print(f"Prompt: {o['prompt']!r}, Generated text: {o['text']!r}")
+    with open(output_file, "w") as f:    
+        for start in range(0, len(prompts), script_args.batch_size):
+            end = min(len(prompts), start + script_args.batch_size)
+            input_prompts = prompts[start:end]
+
+            results = llm.generate(input_prompts, sampling_params)
+            batch_ds = ds.select(range(start,end))
+            for d, output in zip(batch_ds, results):
+                prompt = output.prompt
+                generated_text = output.outputs[0].text
+                # print(f"Prompt: {prompt!r}, Generated text: {generated_text!r}")
+                result = {
+                    "prompt": prompt,
+                    "text": generated_text,
+                    "label": d["label"]
+                }
+                f.write(json.dumps(result) + "\n")
+                outputs.append(result)
+    
+    if len(outputs) != len(prompts):
+        raise ValueError
+    # if script_args.debug:
+    #     for o in outputs:
+    #         print(f"Prompt: {o['prompt']!r}, Generated text: {o['text']!r}")
         
     
-    with open(output_file, "w") as f:
-        for o in outputs:
-            f.write(json.dumps(o) + "\n")
+    # with open(output_file, "w") as f:
+    #     for o in outputs:
+
 
 
 if __name__ == "__main__":

@@ -17,7 +17,7 @@ from transformers import AutoModelForCausalLM, AutoTokenizer
 from torch.utils.data import DataLoader
 from typing import List
 import ast 
-
+import wandb
 
 logger = logging.getLogger(__name__)
 
@@ -117,7 +117,7 @@ def main(args: Arguments):
             bnb_4bit_quant_type="nf4",
             bnb_4bit_compute_dtype=torch.bfloat16
         )
-        model = AutoModelForCausalLM.from_pretrained(args.script_args.model_name, use_safetensors=True, attn_implementation='flash_attention_2',  quantization_config=bnb_config)
+        model = AutoModelForCausalLM.from_pretrained(args.script_args.model_name, attn_implementation='flash_attention_2',  quantization_config=bnb_config)
         model = prepare_model_for_kbit_training(model, use_gradient_checkpointing=train_args.gradient_checkpointing)
         model = get_peft_model(model=model, peft_config=args.lora.as_peft_config())
     else:
@@ -133,16 +133,16 @@ def main(args: Arguments):
     print("adding special tokens " , num_added_toks)
     model.resize_token_embeddings(len(tokenizer))
 
-    if num_added_toks > 0:
-        input_embeddings = model.get_input_embeddings().weight.data
-        output_embeddings = model.get_output_embeddings().weight.data
-        input_embeddings_average = input_embeddings[:-num_added_toks].mean(dim=0, keepdim=True)
-        output_embeddings_average = output_embeddings[:-num_added_toks].mean(dim=0, keepdim=True)
+    input_embeddings = model.get_input_embeddings().weight.data
+    output_embeddings = model.get_output_embeddings().weight.data
+    input_embeddings_average = input_embeddings[:-num_added_toks].mean(dim=0, keepdim=True)
+    output_embeddings_average = output_embeddings[:-num_added_toks].mean(dim=0, keepdim=True)
 
-        input_embeddings[-num_added_toks:] = input_embeddings_average
-        output_embeddings[-num_added_toks:] = output_embeddings_average
+    input_embeddings[-num_added_toks:] = input_embeddings_average
+    output_embeddings[-num_added_toks:] = output_embeddings_average
     
     label_column_names = [name for name in dataset["train"].column_names if "label" in name]
+    label_map = { 0: "reject",  1: "granted", 2: "uncertain" }
     # Tokenize data
     def preprocess_function(examples):
         batch = []

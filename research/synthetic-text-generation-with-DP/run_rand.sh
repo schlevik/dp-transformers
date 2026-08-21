@@ -1,51 +1,74 @@
 #!/usr/bin/env bash
 
+#n2c2 batch size  2 , gradient accumulation 2
+#eurlex batch size 4 , gradient accumulation 4
 
-dataset_name=$1
-rand_set=$2
-sequence_len=256
+
+set -euo pipefail
+
+dataset_name=${1:-}
 user_name="srini"
-gpu_device=$2
-start=$3
-end=$4
-# Check that all required input variables are provided correctly
-if [ -z "$dataset_name" ]; then
-    echo "Error: dataset_name argument is required."
-    echo "Usage: $0 <dataset_name> <gpu_device> <start> <end>"
+gpu_device=${2:-}
+start=${3:-}
+end=${4:-}
+rand=${5:-}
+sequence_len=${6:-}
+number_epochs=5
+model_name=meta-llama/Llama-3.2-1B
+
+if [ "$#" -ne 6 ]; then
+    echo "Usage: $0 <dataset_name> <gpu_device> <start> <end> <rand_type> <sequence_len>" >&2
+    echo "Error: All 6 arguments are required." >&2
     exit 1
 fi
 
-if [ -z "$gpu_device" ]; then
-    echo "Error: gpu_device argument is required."
-    echo "Usage: $0 <dataset_name> <gpu_device> <start> <end>"
+case "$dataset_name" in
+    psytar) expected_sequence_len=128 ;;
+    hoc) expected_sequence_len=128 ;;
+    n2c2_2008) expected_sequence_len=3072 ;;
+    Daniel-ML) expected_sequence_len=160 ;;
+    asylax) expected_sequence_len=15000 ;;
+    luckycat37) expected_sequence_len=2048 ;;
+    tfns) expected_sequence_len=80 ;;
+    eurlex) expected_sequence_len=2048 ;;
+    Mimic) expected_sequence_len=4500 ;;
+    *)
+        echo "Error: Unknown dataset '$dataset_name'; no expected sequence length is configured." >&2
+        exit 1
+        ;;
+esac
+
+if ! [[ "$sequence_len" =~ ^[1-9][0-9]*$ ]]; then
+    echo "Error: sequence_len must be a positive integer; got '$sequence_len'." >&2
     exit 1
 fi
 
-if [ -z "$start" ]; then
-    echo "Error: start argument is required."
-    echo "Usage: $0 <dataset_name> <gpu_device> <start> <end>"
+if [ "$sequence_len" -ne "$expected_sequence_len" ]; then
+    echo "Error: sequence_len for '$dataset_name' must be $expected_sequence_len; got $sequence_len." >&2
     exit 1
 fi
 
-if [ -z "$end" ]; then
-    echo "Error: end argument is required."
-    echo "Usage: $0 <dataset_name> <gpu_device> <start> <end>"
-    exit 1
-fi
+echo "Validated sequence_len=$sequence_len for dataset '$dataset_name'."
 
-set -euo pipefail 
-data_dir=/mnt/nvme1/yidan/MIA/data/cls/eurlex/D_sample/$dataset_name/$rand_set
+data_dir=/mnt/nvme1/yidan/MIA/data/cls/$dataset_name/D_sample/$rand
+echo "data dir $data_dir"
+
 for idx in $(seq $start $end); do
     dataset_file="$data_dir/dataset_${idx}.jsonl"
-    for epsilon in 0 4; do
+    for epsilon in 4; do
         echo "Processing $dataset_file with epsilon $epsilon"
         dataset_temp=$(basename $dataset_file)
         echo "dataset_temp: $dataset_temp"
         i=${dataset_temp%.jsonl}
         echo "i: $i"
-        output_dir="/mnt/nvme1/srini/rerun_strategy1/$dataset_name/$model_name/full_split/${i}/${epsilon}"
+        output_dir="/mnt/nvme1/srini/rerun_strategy1/$dataset_name/control_group/$rand/$i/$epsilon"
         echo "output dir: $output_dir"
         echo "epsilon: $epsilon"
+        final_dir="$output_dir/final"
+        if [ -d "$final_dir" ]; then
+            echo "Final model already exists: $final_dir. Skipping training."
+            continue
+        fi
         mkdir -p "$output_dir"
         if [ "$epsilon" = "0" ]; then
             echo "no DP"
@@ -116,4 +139,3 @@ for idx in $(seq $start $end); do
         find "$output_dir" -maxdepth 1 -type d -name 'checkpoint-*' -exec rm -rf {} +
     done
 done
-
